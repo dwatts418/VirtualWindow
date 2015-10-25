@@ -1,0 +1,505 @@
+/*
+This program dims a string of RGB LEDs through a
+ sequence that mimics a sunset. Then, it waits until
+ dawn, and mimics a sunrise. It is intended to be used
+ as an aquarium lighting controller.
+ A real-time-clock module is used to get the time.
+ Arduinio Micro, 5V, 16MHz (Sparcfu n or Adafruit)
+ PWM pin = 6
+ LEDs : AdaFruit ID: 346
+ NOTE!!!!
+ RTC connected to SDA=2, SCL=3 (sparcfun BOB-00099) on Micro 5V 16MHZ,
+ but 4A,5A on the Uno. Check Wire.h for your unit, since
+ the pins change from Arduino to Arduino...
+ */
+ 
+#include <Adafruit_NeoPixel.h>
+#include <avr/pgmspace.h>
+#include "Wire.h"
+#define DS1307_I2C_ADDRESS 0x68 // This is the I2C address
+
+// Arduino version compatibility Pre-Compiler Directives
+#if defined(ARDUINO) && ARDUINO >= 100 // Arduino v1.0 and newer
+#define I2C_WRITE Wire.write
+#define I2C_READ Wire.read
+#else // Arduino Prior to v1.0
+#define I2C_WRITE Wire.send
+#define I2C_READ Wire.receive
+#endif
+
+// This table contains the sequence of R,G,B values
+// that go from midday light to darkness...
+// There are 974 RGB-triples listed below. There are too many
+// of them to fit in the normal RAM, so they are placed in
+// program memory.
+
+PROGMEM prog_uchar RGBs[ ] = {
+  250,250,250,252,252,252,253,253,253,253,253,253,253,253,253,253,253,253,
+  254,254,254,254,254,253,253,253,252,253,253,251,253,253,251,254,254,252,
+  254,254,252,254,254,252,254,254,252,254,254,252,254,254,252,254,254,252,
+  254,254,251,254,253,252,254,253,252,254,254,251,254,254,250,254,255,249,
+  254,255,249,254,255,250,254,255,250,254,255,250,254,255,250,254,255,250,
+  254,255,250,254,255,250,254,254,249,253,255,250,253,255,250,254,254,249,
+  254,254,249,255,253,247,255,253,247,255,254,249,255,254,249,255,254,249,
+  255,254,249,255,254,249,255,254,249,255,254,249,255,254,248,255,253,249,
+  255,253,249,255,254,248,255,254,246,255,255,245,255,255,245,255,255,246,
+  255,255,246,255,255,246,255,255,246,255,255,246,255,255,246,255,255,246,
+  254,254,245,255,255,246,255,255,246,254,254,245,254,254,243,253,253,242,
+  253,253,242,254,254,243,254,254,243,254,254,243,254,254,243,254,254,243,
+  254,254,243,254,254,243,254,254,244,254,254,243,254,254,243,254,254,244,
+  254,254,245,254,254,246,254,254,246,254,254,245,254,254,245,254,254,245,
+  254,254,245,254,254,245,254,254,245,254,254,245,254,254,244,254,253,245,
+  254,253,245,254,254,244,254,254,241,254,255,240,254,255,240,254,255,242,
+  254,255,241,254,255,241,254,255,242,254,255,242,254,255,242,254,255,242,
+  254,254,241,253,255,242,253,255,242,254,254,241,254,254,240,255,254,239,
+  255,254,239,255,254,240,255,254,240,255,254,240,255,254,240,255,254,240,
+  255,254,240,255,254,240,255,254,239,255,254,241,255,254,241,255,254,239,
+  255,254,236,255,254,235,255,254,235,255,254,236,255,254,237,255,254,237,
+  255,254,237,255,254,237,255,254,236,255,254,236,255,253,236,255,254,236,
+  255,254,236,255,253,235,255,253,235,255,253,235,255,253,235,255,253,235,
+  255,253,235,255,253,235,255,253,235,255,253,235,255,253,235,255,253,235,
+  255,253,234,255,253,235,255,253,235,255,253,234,255,254,231,255,255,230,
+  255,255,230,255,255,231,255,255,231,255,255,231,255,255,231,255,255,231,
+  255,255,231,255,255,231,255,254,231,255,255,231,255,255,231,255,254,231,
+  255,254,230,255,253,229,255,253,229,255,254,230,255,254,230,255,254,230,
+  255,254,230,255,254,230,255,254,230,255,254,230,255,254,229,255,253,230,
+  255,253,230,255,254,229,255,254,228,255,255,227,255,255,227,255,255,228,
+  255,255,228,255,255,228,255,255,228,255,255,228,255,255,228,255,255,228,
+  255,254,227,255,255,228,255,255,229,255,254,226,255,254,221,255,253,219,
+  255,253,219,255,254,221,255,254,221,255,254,221,255,254,221,255,254,221,
+  255,254,221,255,254,221,255,254,220,255,254,220,255,254,220,255,254,220,
+  255,254,221,255,254,221,255,254,221,255,254,222,255,254,222,255,254,222,
+  255,254,222,255,254,222,255,254,222,255,254,222,254,253,221,255,254,222,
+  255,254,222,254,253,221,254,253,219,253,253,218,253,253,218,254,253,218,
+  254,253,217,254,253,218,254,253,218,254,253,218,254,253,217,254,253,217,
+  253,253,215,253,253,216,253,253,216,253,253,215,253,253,213,252,253,212,
+  252,253,212,253,254,213,253,254,213,253,254,213,253,254,213,253,254,213,
+  253,254,213,253,254,213,253,254,212,252,254,213,252,254,213,253,253,212,
+  254,253,211,255,254,210,255,254,210,254,253,211,255,253,209,255,253,208,
+  254,253,207,254,253,207,253,253,206,253,253,206,254,253,205,253,253,204,
+  253,253,203,254,253,204,254,253,204,255,252,204,255,253,203,254,251,203,
+  253,252,201,253,252,199,254,253,196,254,253,196,254,253,195,254,253,195,
+  253,253,193,253,254,192,253,253,192,253,254,190,253,254,187,253,255,186,
+  253,255,186,254,255,186,252,255,184,252,255,184,253,255,183,253,255,181,
+  252,255,179,252,255,176,251,254,174,251,255,174,251,255,174,252,254,174,
+  253,254,176,254,254,177,254,254,177,254,254,176,253,254,174,253,254,173,
+  253,254,171,253,254,169,253,254,168,253,254,167,253,254,165,253,255,164,
+  253,255,164,253,254,164,254,254,163,255,252,164,255,252,164,255,254,163,
+  254,255,161,254,255,160,255,255,159,255,255,156,254,255,154,254,255,154,
+  253,254,152,253,255,150,253,255,152,253,254,151,252,253,149,252,253,148,
+  252,254,149,253,252,149,253,251,147,253,251,147,252,251,146,252,251,146,
+  253,250,145,253,250,144,253,249,142,252,248,142,252,248,143,253,248,141,
+  253,249,136,253,248,133,253,248,132,253,248,132,253,248,132,253,247,131,
+  253,246,130,253,246,129,252,245,127,252,246,125,252,245,124,251,244,123,
+  252,244,124,251,244,124,253,241,124,253,240,124,253,240,122,253,239,122,
+  253,239,122,253,240,121,252,239,118,252,238,117,253,237,116,253,237,116,
+  253,236,114,252,235,112,252,235,113,252,234,112,254,233,109,255,232,108,
+  254,233,108,253,233,106,254,232,105,254,231,104,253,230,103,253,229,103,
+  253,228,101,253,229,100,254,227,99,253,226,98,253,227,97,254,227,96,
+  254,225,95,254,225,94,255,225,95,255,223,93,254,222,91,254,223,89,
+  254,222,88,254,220,87,255,219,86,255,219,85,255,218,84,255,218,84,
+  255,219,83,254,218,80,254,216,75,253,215,74,253,215,74,254,214,72,
+  254,214,71,254,213,71,254,212,70,254,212,68,255,211,66,255,211,65,
+  254,209,64,253,209,63,253,208,62,252,208,62,251,206,64,250,207,64,
+  251,206,63,252,205,61,251,203,59,251,202,56,252,201,54,252,200,52,
+  252,199,50,252,198,49,251,196,47,252,195,46,252,194,46,252,194,44,
+  253,194,39,252,193,36,253,192,37,252,190,33,252,189,31,252,187,31,
+  253,185,30,253,186,28,253,184,27,253,182,26,254,180,23,253,179,21,
+  253,179,21,253,179,21,252,178,19,251,177,17,250,176,17,251,174,16,
+  252,173,15,251,173,14,252,172,13,252,170,12,253,168,11,253,168,10,
+  253,166,9,254,165,7,253,165,7,252,164,6,251,163,5,251,162,4,
+  252,161,4,252,161,3,251,160,2,252,158,2,253,157,1,253,156,1,
+  253,155,0,253,154,0,253,151,0,253,150,0,253,150,0,253,150,0,
+  253,150,0,253,150,0,254,150,0,254,149,0,253,147,0,253,146,0,
+  254,146,0,254,145,0,253,143,1,253,142,2,254,140,2,253,140,1,
+  253,140,2,252,138,2,253,137,0,254,136,1,254,137,2,254,136,3,
+  253,134,4,253,133,5,252,132,7,252,133,9,253,131,11,253,129,11,
+  253,128,12,252,129,13,252,128,13,252,126,15,252,123,19,252,122,21,
+  252,123,21,253,121,23,252,119,24,252,119,25,252,118,27,252,118,29,
+  253,117,31,253,115,32,252,114,34,252,113,35,252,113,36,253,111,38,
+  255,110,42,255,107,44,255,107,44,255,107,45,255,106,47,255,105,50,
+  254,104,53,255,102,56,255,100,59,255,99,64,255,98,70,254,97,72,
+  254,96,73,255,95,76,255,95,82,255,95,87,255,94,88,255,92,88,
+  254,91,90,254,91,93,255,90,96,255,88,100,255,87,104,255,86,105,
+  254,84,108,254,83,109,254,84,110,254,83,113,253,80,121,252,79,125,
+  252,79,125,253,79,126,252,78,128,252,78,131,252,77,132,252,76,132,
+  252,75,135,252,75,138,250,73,140,252,72,139,252,73,140,250,72,142,
+  251,72,146,251,72,147,251,72,147,250,73,149,249,71,151,249,72,153,
+  249,71,156,249,71,158,249,71,159,249,71,159,248,69,161,247,69,164,
+  246,69,164,247,69,166,249,68,167,251,67,168,251,67,168,250,67,169,
+  249,69,171,248,69,173,247,67,175,248,67,176,247,67,178,247,67,179,
+  246,67,181,247,67,182,245,67,183,244,68,183,243,68,185,242,69,186,
+  242,69,185,241,68,187,240,69,188,239,69,190,238,70,191,237,70,193,
+  236,70,194,236,70,196,235,69,199,233,71,200,233,71,201,232,70,200,
+  232,68,199,233,67,199,233,68,200,231,68,200,229,67,203,229,68,204,
+  228,69,205,227,69,208,226,70,209,226,70,209,224,69,211,223,69,212,
+  222,69,213,221,69,212,221,69,210,220,68,209,219,68,210,220,67,211,
+  220,67,213,218,67,213,217,66,213,217,66,214,215,64,215,215,64,214,
+  215,63,217,214,63,218,213,63,217,212,62,217,211,62,217,212,61,217,
+  212,61,217,211,62,217,209,61,217,209,61,216,208,60,216,208,60,215,
+  206,59,215,205,59,215,204,58,215,204,57,215,203,57,215,204,56,216,
+  204,56,218,205,55,219,204,54,219,203,53,219,201,53,219,200,52,218,
+  199,51,218,199,51,219,197,50,219,196,50,219,194,49,218,195,48,218,
+  195,48,219,194,47,219,193,47,217,192,46,217,192,46,217,191,44,217,
+  191,43,216,190,43,217,189,42,217,189,41,217,188,40,216,187,39,215,
+  186,38,216,186,38,217,185,38,216,185,36,215,185,34,216,185,33,217,
+  185,34,217,184,33,217,183,31,217,182,30,217,181,29,215,181,28,215,
+  180,27,215,180,27,215,179,27,215,179,27,216,178,25,216,177,26,216,
+  174,25,216,172,25,216,172,24,216,172,24,215,172,23,214,171,22,214,
+  170,21,215,170,21,215,169,20,214,169,19,213,168,18,212,167,17,213,
+  167,17,213,166,16,211,164,16,212,163,15,212,163,14,211,162,14,212,
+  162,13,213,161,13,212,160,12,211,160,12,210,159,11,210,159,10,211,
+  158,9,210,157,8,210,158,8,209,156,8,209,151,8,210,149,6,209,
+  149,6,209,149,6,209,148,6,208,148,5,208,146,4,208,145,3,208,
+  144,2,208,144,3,208,142,3,207,142,2,206,142,2,206,141,3,208,
+  141,2,211,142,1,213,142,1,212,140,2,211,140,1,211,139,1,211,
+  139,1,209,138,1,210,137,1,209,136,1,209,135,0,208,134,0,207,
+  134,0,207,134,0,207,135,0,207,134,0,207,134,0,207,133,0,206,
+  131,0,206,130,0,206,128,0,205,125,0,205,124,0,204,124,0,204,
+  122,1,204,119,1,204,119,1,204,119,0,203,120,2,199,119,3,198,
+  118,3,198,118,3,198,117,4,197,116,4,197,115,5,197,114,6,197,
+  113,7,197,112,8,197,110,9,195,109,9,196,108,9,196,108,10,194,
+  106,12,192,105,13,190,106,12,191,105,14,190,104,16,191,103,16,191,
+  102,18,191,101,19,191,100,21,189,100,21,189,100,22,188,99,22,190,
+  98,23,190,97,24,189,96,24,185,96,25,184,96,25,184,96,25,185,
+  94,26,183,92,27,184,91,28,183,89,29,182,88,31,180,88,30,181,
+  87,31,181,87,33,180,85,33,180,85,33,179,86,33,178,86,33,177,
+  85,34,177,83,34,178,82,35,177,82,35,176,81,35,175,80,35,175,
+  79,36,176,79,35,176,77,36,175,76,38,174,75,38,174,75,38,173,
+  73,39,170,73,39,169,71,39,169,71,40,169,70,39,168,70,39,166,
+  68,39,165,69,39,165,68,39,166,66,39,165,65,39,164,65,39,162,
+  64,39,161,63,38,162,64,38,165,64,38,165,63,38,165,61,39,164,
+  60,39,163,60,38,162,59,38,161,58,38,161,57,38,160,57,38,159,
+  55,37,157,54,37,156,55,37,157,54,38,155,52,38,151,51,39,149,
+  51,40,149,51,39,149,50,37,147,50,38,146,49,37,145,48,38,144,
+  47,38,143,45,38,142,45,37,140,45,36,139,45,36,139,44,36,140,
+  44,37,140,44,38,140,44,38,138,43,37,136,41,36,135,41,36,133,
+  41,37,133,41,37,131,40,37,129,39,37,128,37,36,125,37,37,127,
+  38,39,127,35,35,117,36,35,118,36,36,119,35,35,118,35,36,119,
+  33,34,119,40,40,120,40,40,120,39,39,120,36,38,120,34,38,119,
+  32,38,114,32,39,116,32,39,115,32,39,116,33,39,115,33,38,116,
+  33,38,116,32,37,114,32,35,113,31,35,114,33,36,114,33,36,114,
+  34,37,114,34,36,113,35,36,112,34,36,109,34,36,108,35,38,107,
+  34,37,107,33,35,107,33,36,106,32,35,105,33,36,104,33,36,105,
+  32,35,104,32,35,102,31,34,101,31,34,102,32,35,101,31,36,99,
+  31,35,99,31,34,98,32,34,98,33,34,97,33,34,96,33,35,96,
+  32,34,95,32,34,93,31,33,92,32,34,93,31,33,91,31,33,90,
+  30,32,89,30,33,90,30,33,89,31,33,88,31,33,87,31,32,85,
+  31,32,84,30,32,83,31,33,83,31,33,82,30,32,81,30,32,81,
+  29,31,80,29,31,79,30,32,80,29,32,79,29,32,78,28,32,76,
+  28,32,75,29,32,74,29,32,75,29,31,74,29,32,72,29,32,71,
+  28,32,70,28,31,69,29,31,68,29,31,67,28,31,65,27,30,63,
+  27,30,63,26,30,62,27,30,60,26,30,59,25,30,59,26,29,57,
+  28,29,56,28,29,55,27,29,54,27,29,52,26,28,50,26,28,50,
+  27,29,49,27,28,48,27,28,48,27,27,47,28,28,44,28,27,43,
+  28,27,43,27,26,41,28,27,40,28,27,41,27,27,40,27,27,39,
+  26,26,38,26,26,39,27,27,37,26,26,36,26,26,36,26,25,35,
+  26,25,32,27,26,31,27,26,31,26,26,31,27,26,31,27,26,31,
+  26,26,30,26,26,28,25,26,27,25,26,28,26,26,27,26,26,25,
+  26,26,25,26,26,26};
+  
+// Global variables
+byte zero = 0x00;
+byte inc = 100;
+const byte min_inten = 0; //anything >0 leaves lights on a little
+byte debug = 1; 
+// 1 = normal time, but output, 
+// 2 = 8x speed, with sunrise now
+// 3 = cycle up and down fast
+// Set up the time for sunrise and sunset
+int sunrise = 2100; //400
+int sunset = 2345; //2000
+int t = 0;
+boolean its_up = false;
+boolean moons_done = false;
+int delayTime = 3600000/974; // this should be about an hour
+const byte wipeDelay = 100;
+// iintialize the LED strip
+// Parameter 1 = number of pixels in strip
+// Parameter 2 = pin number (most are valid)
+// Parameter 3 = pixel type flags, add together as needed:
+// NEO_RGB Pixels are wired for RGB bitstream
+// NEO_GRB Pixels are wired for GRB bitstream
+// NEO_KHZ400 400 KHz bitstream (e.g. FLORA pixels)
+// NEO_KHZ800 800 KHz bitstream (e.g. High Density LED strip)
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(17, 6, NEO_GRB + NEO_KHZ800);
+void setup() {
+  Wire.begin(); // start the RTC routine
+  if (debug) {
+    delay(3000);
+    Serial.begin(9600);// start the debug output
+    if (debug == 3){
+      sunset = 100;
+      sunrise = 100;
+    }
+    else {
+      if (debug == 2) {
+        inc = 8;
+        // set rise and set times to sometime soon
+        sunrise = getTimeRTC() + 5;
+        sunset = sunrise + 10;
+      }
+    }
+    Serial.println("At the top of setup...");
+  }
+  strip.begin(); // set up the strip
+  strip.show(); // Initialize all pixels to 'off'
+  int currentTime;
+  currentTime = getTimeRTC();
+  if (debug){
+    Serial.print("Current Time: ");
+    Serial.println(currentTime,DEC);
+  }
+}
+void loop() {
+  // this will only be true if we're in debug mode
+  // infinite loop for testing
+  while (sunrise == sunset){
+    delayTime = 0;
+    make_it_rise(8); // the larger the argument, the faster time goes
+    make_it_set(8);
+    delay(1000);
+  }
+  
+  // if we get to this line, we're not in debug mode.
+  // Go into an infinite loop for day-to-day operation
+  while(true){
+    if (debug){
+      Serial.println("At the top of loop...");
+    }
+    
+    /*
+    t = getTimeRTC();
+    if (debug) {
+      Serial.print("time,its_daytime,its_sunset,its_up,done: ");
+      Serial.println(t,DEC);
+      Serial.print(" ");
+      Serial.print(its_daytime(),DEC);
+      Serial.print(" ");
+      Serial.print(its_sunset(),DEC);
+      Serial.print(" ");
+      Serial.print(its_up,DEC);
+      Serial.print(" ");
+      Serial.println(moons_done,DEC);
+      Serial.flush();
+    }
+    */
+    
+    // if it's between sunrise and sunset, and the sun has
+    // not risen (because we just turned it on), then
+    // make it rise, and note that.
+    if (its_daytime() && (!its_up)) {
+      make_it_rise(inc);
+      its_up = true;
+      if (debug) {
+        Serial.println("Exit between sunrise and sunset IF");
+      }
+    }
+    
+    // if it's after sunset, and the sun is up,
+    // then make it set. If it's already down,
+    // don't do anything
+    if (its_sunset() && (its_up)){
+      make_it_set(inc);
+      its_up = false; // now the sun is down...
+      moons_done = false; // but so is the moon
+      if (debug) {
+        Serial.println("Exit after sunset IF");
+      }
+    }
+    
+    // And if it's after sunset, and the sun is down,
+    // and the moon is down, make the moon rise for a while
+    //if (its_sunset() && (!its_up) && (!moons_done)) {
+      //make_the_moon(inc);
+      //moons_done = true; //this won't get changed until the next sunset
+    //}
+  } // while true
+} // loop
+
+// Convert binary coded decimal to normal decimal numbers
+byte bcdToDec(byte val)
+{
+  return ( (val/16*10) + (val%16) );
+}
+
+// Gets the date and time from the ds1307 and prints result
+int getTimeRTC()
+{
+  if (debug){
+    Serial.println("in getTimeRTC...");
+  }
+  byte second,minute,hour,dayOfWeek, dayOfMonth, month, year;
+  // Reset the register pointer
+  Wire.beginTransmission(DS1307_I2C_ADDRESS);
+  I2C_WRITE(zero);
+  Wire.endTransmission();
+  Wire.requestFrom(DS1307_I2C_ADDRESS, 7);
+  // A few of these need masks because certain bits are control bits
+  second = bcdToDec(I2C_READ() & 0x7f);
+  minute = bcdToDec(I2C_READ());
+  hour = bcdToDec(I2C_READ() & 0x3f); // Need to change this if 12 hour am/pm
+  dayOfWeek = bcdToDec(I2C_READ());
+  dayOfMonth = bcdToDec(I2C_READ());
+  month = bcdToDec(I2C_READ());
+  year = bcdToDec(I2C_READ());
+  if (debug) {
+    Serial.print("time:");
+    Serial.println(100*hour + minute,DEC);
+  }
+  return(100*hour + minute);
+}
+
+// returns TRUE if it's time for the sun to rise
+boolean its_sunrise() {
+  int timeSunrise;
+  //get the time from a RTC
+  timeSunrise = getTimeRTC();
+  if (debug){
+    Serial.println("its_sunrise function");
+    Serial.print(timeSunrise,DEC);
+    Serial.print(" ");
+    Serial.println(sunrise,DEC);
+    if (timeSunrise >= sunrise) {
+      Serial.println("sunrise function TRUE");
+    }
+    else {
+      Serial.println("sunrise function FALSE");
+    }
+  }
+  return(timeSunrise >= sunrise);
+}
+
+
+// returns TRUE if it's daylight hours
+boolean its_daytime() {
+  int timeDaytime;
+  //get the time from a RTC
+  timeDaytime = getTimeRTC();
+  if (debug){
+    Serial.println("its_daytime check");
+    Serial.println(timeDaytime,DEC);
+    if ((timeDaytime > sunrise) && (timeDaytime < sunset)) {
+      Serial.println("daytime check TRUE");
+    }
+    else {
+      Serial.println("daytime check FALSE");
+    }
+  }
+  return ((timeDaytime > sunrise) && (timeDaytime < sunset));
+}
+
+// returns TRUE if it's time for sunset or later
+boolean its_sunset() {
+  int timeSunset;//get the time from a RTC
+  timeSunset = getTimeRTC();
+  if (debug){
+    Serial.println("its_sunset check");
+    Serial.print(timeSunset,DEC);
+    Serial.print(" ");
+    Serial.println(sunset,DEC);
+    if (timeSunset > sunset) {
+      Serial.println("sunset check TRUE");
+    }
+    else {
+      Serial.println("sunset check FALSE");
+    }
+  }
+  return(timeSunset > sunset);
+}
+
+
+// cycles through the table of RGB values
+// in reverse order (from dark to full light)
+void make_it_rise(byte inc) {
+  int i,idx;
+  byte R,G,B;
+  idx = 974*3 - 3;
+  /*for (i=1; i<27; i++){
+    if (debug) {
+      Serial.println(i,DEC);
+    }
+    colorWipe(strip.Color(i,i,i), wipeDelay);
+    delay(12000/inc);
+  }
+  */
+  for (i=973/inc; i>0; i--) {
+    R=pgm_read_byte(RGBs + idx);
+    G=pgm_read_byte(RGBs + idx+1);
+    B=pgm_read_byte(RGBs + idx+2);
+    idx = idx - 3*inc ;
+    if (debug){
+      Serial.print("in make_it_rise: ");
+      Serial.print(idx,DEC);
+      Serial.print(" ");
+      Serial.print(R,DEC);
+      Serial.print(",");
+      Serial.print(G,DEC);
+      Serial.print(",");
+      Serial.println(B,DEC);
+    }
+    colorWipe(strip.Color(R,G,B),wipeDelay);
+    delay(delayTime);
+  }
+  // full on during the day
+  colorWipe(strip.Color(255,255,255), wipeDelay);
+  Serial.println("full during day");
+}
+
+//Cycle through the table of RGB values, from
+// full light to darkness
+void make_it_set(byte inc) {
+  int j,idx;
+  byte R,G,B;
+  idx = 0;
+  for (j=0; j<974/inc; j++) {
+    R=pgm_read_byte_near(RGBs + idx);
+    G=pgm_read_byte_near(RGBs + idx+1);
+    B=pgm_read_byte_near(RGBs + idx+2);
+    if (debug){
+      Serial.print("in make_it_set: ");
+      Serial.print(idx,DEC);
+      Serial.print(" ");
+      Serial.print(R,DEC);
+      Serial.print(",");
+      Serial.print(G,DEC);
+      Serial.print(",");
+      Serial.println(B,DEC);
+    }
+    idx += 3*inc;
+    colorWipe(strip.Color(R,G,B),wipeDelay);
+    delay(delayTime);
+  }
+  // full off
+  for (j=26; j>0; j--){
+    colorWipe(strip.Color(j,j,j), wipeDelay);
+    delay(12000/inc);
+  }
+  colorWipe(strip.Color(min_inten,min_inten,min_inten),wipeDelay);
+}
+// This keeps a little light on in case we want to watch
+// them at night...it simulates a fast rise, and set.
+void make_the_moon(byte inc) {
+  byte i;
+  byte moonVal = 5;
+  //moonrise
+  for (i=0; i<moonVal; i++) {
+    colorWipe(strip.Color(i,i,i),wipeDelay);
+    delay(20000/inc);
+  }
+  delay(3600000/inc); //wait an hour
+  // moonset
+  for (i=moonVal; i>0; i--) {
+    colorWipe(strip.Color(i,i,i),wipeDelay);
+    delay(20000/inc);
+  }
+  colorWipe(strip.Color(min_inten, min_inten, min_inten),wipeDelay);
+}
+// Fill the dots one after the other with a color
+void colorWipe(uint32_t c, uint8_t wait) {
+  for(uint16_t i=0; i<strip.numPixels(); i++) {
+    strip.setPixelColor(i, c);
+    strip.show();
+    delay(wait);
+  }
+}
